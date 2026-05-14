@@ -211,9 +211,23 @@ var Utils = (function() {
     return map[period] || period;
   }
 
+  // Parse CSV but search for the header row that contains all requiredCols
+  // (handles Amazon CSV with metadata lines at top)
+  function parseCSVAutoHeader(text, requiredCols) {
+    text = text.replace(/^﻿/, '');
+    var lines = text.split(/\r?\n/);
+    var headerIdx = -1;
+    for (var i = 0; i < Math.min(25, lines.length); i++) {
+      var allFound = requiredCols.every(function(c) { return lines[i].indexOf(c) >= 0; });
+      if (allFound) { headerIdx = i; break; }
+    }
+    if (headerIdx < 0) return null;
+    return parseCSV(lines.slice(headerIdx).join('\n'));
+  }
+
   return {
     generateId, formatNum, formatDate, formatDateTime,
-    hashString, parseCSV, getDateRange, isInRange,
+    hashString, parseCSV, parseCSVAutoHeader, getDateRange, isInRange,
     esc, resizeImage, invClass, noImg,
     toast, showModal, hideModal, confirm,
     monthKey, periodLabel

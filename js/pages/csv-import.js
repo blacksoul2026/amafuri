@@ -4,17 +4,48 @@ var PageCsvImport = (function() {
   var _container = null;
   var _tab = 'amazon'; // 'amazon' | 'sellernote'
 
-  // Per-tab state
+  // Per-tab state: { raw: text, filename, detected: {format, filteredRows, allRows} }
   var _state = {
-    amazon:     { parsed: null, filename: '', mapping: {} },
-    sellernote: { parsed: null, filename: '', mapping: {} }
+    amazon:     { raw: null, filename: '', detected: null },
+    sellernote: { raw: null, filename: '', detected: null }
   };
 
-  // Required mapping fields per type
-  var FIELDS = {
-    amazon:     [{ key:'sku',  label:'SKU列 *', required:true }, { key:'qty', label:'数量列 *', required:true }, { key:'date', label:'注文日列', required:false }],
-    sellernote: [{ key:'mgmt', label:'管理番号列 *', required:true }, { key:'qty', label:'数量列 *', required:true }, { key:'date', label:'日付列', required:false }]
-  };
+  // ---- Format detection ----
+
+  // Amazon CSV: must have these columns (after skipping metadata lines)
+  var AMAZON_REQUIRED = ['SKU', '数量', 'トランザクションの種類', '日付/時間'];
+  // SellerNote CSV: must have these columns
+  var SELLERNOTE_REQUIRED = ['SKU/管理番号', '取引状態', '売上日'];
+
+  function detectAmazon(text) {
+    var parsed = Utils.parseCSVAutoHeader(text, ['SKU', '数量', 'トランザクションの種類']);
+    if (!parsed || !parsed.headers.length) return null;
+    var missing = AMAZON_REQUIRED.filter(function(c) { return parsed.headers.indexOf(c) < 0; });
+    if (missing.length > 0) return null;
+    var filtered = parsed.data.filter(function(r) {
+      return (r['トランザクションの種類'] || '').trim() === '注文';
+    });
+    return { format: 'amazon', parsed: parsed, filteredRows: filtered };
+  }
+
+  function detectSellerNote(text) {
+    var parsed = Utils.parseCSV(text);
+    if (!parsed || !parsed.headers.length) return null;
+    var missing = SELLERNOTE_REQUIRED.filter(function(c) { return parsed.headers.indexOf(c) < 0; });
+    if (missing.length > 0) return null;
+    var filtered = parsed.data.filter(function(r) {
+      return (r['取引状態'] || '').trim() === '取引完了';
+    });
+    return { format: 'sellernote', parsed: parsed, filteredRows: filtered };
+  }
+
+  function detectFormat(text, tab) {
+    if (tab === 'amazon')     return detectAmazon(text);
+    if (tab === 'sellernote') return detectSellerNote(text);
+    return null;
+  }
+
+  // ---- Render ----
 
   function render(container) {
     _container = container;
@@ -47,7 +78,8 @@ var PageCsvImport = (function() {
   }
 
   function renderImportPanel() {
-    var st = _state[_tab];
+    var st  = _state[_tab];
+    var det = st.detected;
     var html = '';
 
     // Upload zone
@@ -60,91 +92,63 @@ var PageCsvImport = (function() {
       '</div>' +
       '<input type="file" id="csvFileInput" accept=".csv,.tsv,.txt" style="display:none;">';
 
-    if (st.parsed) {
-      var headers  = st.parsed.headers;
-      var rowCount = st.parsed.data.length;
+    if (st.raw && !det) {
+      // File loaded but format not recognized
+      html +=
+        '<div class="alert alert-error mt-12">' +
+          '⚠ このファイルは' + (_tab==='amazon' ? 'Amazon' : 'セラーノート') + ' CSVの形式として認識できませんでした。<br>' +
+          (_tab==='amazon'
+            ? '必要な列：SKU、数量、トランザクションの種類、日付/時間'
+            : '必要な列：SKU/管理番号、取引状態、売上日') +
+        '</div>';
+      html += '<div class="mt-12"><button class="btn btn-outline btn-sm" id="btnClearCsv">クリア</button></div>';
+      return html;
+    }
+
+    if (det) {
+      var allCount      = det.parsed.data.length;
+      var filteredCount = det.filteredRows.length;
+      var filterLabel   = _tab === 'amazon' ? '「注文」行' : '「取引完了」行';
 
       html +=
         '<div class="alert alert-info mt-12">' +
-          '✅ ' + Utils.esc(st.filename) + ' を読み込みました。' +
-          '<strong>' + rowCount + '行</strong>のデータを検出。' +
+          '✅ <strong>' + Utils.esc(st.filename) + '</strong> を読み込みました。<br>' +
+          '全 <strong>' + allCount + ' 行</strong> ／ ' + filterLabel + ': <strong>' + filteredCount + ' 行</strong>' +
         '</div>' +
-
-        '<div class="mt-12"><strong>検出した列：</strong></div>' +
-        '<div class="text-sm text-muted mb-12" style="word-break:break-all;">' +
-          headers.map(function(h){ return '<span class="badge badge-gray" style="margin:2px;">' + Utils.esc(h) + '</span>'; }).join('') +
-        '</div>' +
-
-        '<div class="card mb-12" style="background:var(--bg);">' +
-          '<div class="card-header"><div class="card-title" style="font-size:0.9rem;">列マッピング設定</div></div>' +
-          '<div class="card-body">' + renderMappingFields(headers) + '</div>' +
-        '</div>' +
-
-        '<div class="mb-12"><strong>プレビュー（先頭5行）</strong></div>' +
-        renderPreview(headers, st.parsed.data.slice(0, 5)) +
-
-        '<div class="mt-16">' +
+        renderDetectedPreview(det) +
+        '<div class="mt-16 d-flex gap-8">' +
           '<button class="btn btn-primary btn-lg" id="btnDoImport">このCSVを取り込む</button>' +
-          '<button class="btn btn-outline btn-sm" id="btnClearCsv" style="margin-left:8px;">クリア</button>' +
+          '<button class="btn btn-outline btn-sm" id="btnClearCsv">クリア</button>' +
         '</div>';
     }
 
     return html;
   }
 
-  function renderMappingFields(headers) {
-    var fields  = FIELDS[_tab];
-    var saved   = Storage.getColMapping(_tab);
-    var options = '<option value="">（使用しない）</option>' +
-      headers.map(function(h) { return '<option value="' + Utils.esc(h) + '">' + Utils.esc(h) + '</option>'; }).join('');
+  function renderDetectedPreview(det) {
+    var rows = det.filteredRows.slice(0, 5);
+    if (!rows.length) return '<div class="text-muted text-sm mt-8">対象行がありません</div>';
 
-    var rows = fields.map(function(f) {
-      var savedVal = saved[f.key] || _state[_tab].mapping[f.key] || '';
-      // Auto-detect if header matches common patterns
-      if (!savedVal) savedVal = autoDetect(f.key, headers);
-      return '<div class="form-row mb-8">' +
-        '<div class="form-group" style="margin:0;">' +
-          '<label class="form-label">' + f.label + '</label>' +
-        '</div>' +
-        '<div class="form-group" style="margin:0;">' +
-          '<select class="form-select map-select" data-field="' + f.key + '">' +
-            options.replace('value="' + Utils.esc(savedVal) + '"', 'value="' + Utils.esc(savedVal) + '" selected') +
-          '</select>' +
-        '</div>' +
-      '</div>';
-    }).join('');
-
-    return rows;
-  }
-
-  function autoDetect(field, headers) {
-    var patterns = {
-      sku:  [/^sku$/i, /^商品コード$/, /^product.*sku/i],
-      qty:  [/^quantity.purchased$/i, /^数量$/, /^qty$/i, /^販売数$/, /^数量.*売/],
-      date: [/^purchase.date$/i, /^注文日$/, /^日付$/, /^order.*date/i, /^受注日$/],
-      mgmt: [/^管理番号$/, /^管理コード$/, /^商品管理/]
-    };
-    var pats = patterns[field] || [];
-    for (var i = 0; i < headers.length; i++) {
-      for (var j = 0; j < pats.length; j++) {
-        if (pats[j].test(headers[i])) return headers[i];
-      }
+    var cols, labels;
+    if (det.format === 'amazon') {
+      cols   = ['日付/時間', 'SKU', '数量', 'トランザクションの種類'];
+      labels = ['注文日時', 'SKU', '数量', '種類'];
+    } else {
+      cols   = ['売上日', 'SKU/管理番号', '商品名', '取引状態'];
+      labels = ['売上日', '管理番号', '商品名', '状態'];
     }
-    return '';
-  }
 
-  function renderPreview(headers, rows) {
-    if (!rows.length) return '<div class="text-muted text-sm">データがありません</div>';
-    return '<div class="csv-preview">' +
-      '<table>' +
-        '<thead><tr>' + headers.map(function(h){ return '<th>' + Utils.esc(h) + '</th>'; }).join('') + '</tr></thead>' +
-        '<tbody>' +
-          rows.map(function(r) {
-            return '<tr>' + headers.map(function(h){ return '<td>' + Utils.esc(r[h]||'') + '</td>'; }).join('') + '</tr>';
-          }).join('') +
-        '</tbody>' +
-      '</table>' +
-    '</div>';
+    return '<div class="mb-8 text-sm fw-bold mt-12">プレビュー（先頭5行）</div>' +
+      '<div class="csv-preview">' +
+        '<table>' +
+          '<thead><tr>' + labels.map(function(l){ return '<th>' + Utils.esc(l) + '</th>'; }).join('') + '</tr></thead>' +
+          '<tbody>' +
+            rows.map(function(r) {
+              return '<tr>' + cols.map(function(c){ return '<td>' + Utils.esc(r[c]||'') + '</td>'; }).join('') + '</tr>';
+            }).join('') +
+          '</tbody>' +
+        '</table>' +
+      '</div>';
   }
 
   function renderHistoryPanel(imports, products) {
@@ -162,7 +166,7 @@ var PageCsvImport = (function() {
             '<span class="text-sm text-muted">' + Utils.formatDateTime(imp.importedAt) + '</span>' +
           '</div>' +
           '<div class="text-sm">' +
-            '総行数：<strong>' + Utils.formatNum(imp.rowCount) + '</strong> ／ ' +
+            '対象行：<strong>' + Utils.formatNum(imp.rowCount) + '</strong> ／ ' +
             '照合済み：<span style="color:var(--success);font-weight:700;">' + Utils.formatNum(imp.matchedCount) + '</span> ／ ' +
             '未照合：<span style="color:var(--warning);font-weight:700;">' + Utils.formatNum(imp.unmatchedCount) + '</span>' +
           '</div>' +
@@ -189,49 +193,29 @@ var PageCsvImport = (function() {
     '</div>';
   }
 
-  function getCurrentMapping() {
-    var mapping = {};
-    if (!_container) return mapping;
-    _container.querySelectorAll('.map-select').forEach(function(sel) {
-      mapping[sel.dataset.field] = sel.value;
-    });
-    return mapping;
-  }
+  // ---- Import logic ----
 
   function doImport() {
-    var st = _state[_tab];
-    if (!st.parsed) return;
+    var st  = _state[_tab];
+    var det = st.detected;
+    if (!det) return;
 
-    var mapping = getCurrentMapping();
-    _state[_tab].mapping = mapping;
-    Storage.setColMapping(_tab, mapping);
-
-    // Validate required fields
-    var fields = FIELDS[_tab];
-    for (var i = 0; i < fields.length; i++) {
-      if (fields[i].required && !mapping[fields[i].key]) {
-        Utils.toast(fields[i].label.replace(' *','') + ' の列を選択してください', 'error');
-        return;
-      }
-    }
-
-    // Dedup check
-    var hash = Utils.hashString(st.filename + '|' + st.parsed.data.length + '|' + JSON.stringify(st.parsed.data[0]));
+    var hash = Utils.hashString(st.filename + '|' + det.parsed.data.length + '|' + JSON.stringify(det.parsed.data[0]));
     var existing = Storage.findImportByHash(hash);
     if (existing) {
       Utils.confirm(
         'このCSVはすでに読み込まれています（' + Utils.formatDateTime(existing.importedAt) + '）。\n再度読み込むと在庫が二重に減算されます。本当に読み込みますか？',
-        function() { processImport(st, mapping, hash); },
+        function() { processImport(st, det, hash); },
         null
       );
       return;
     }
-    processImport(st, mapping, hash);
+    processImport(st, det, hash);
   }
 
-  function processImport(st, mapping, hash) {
+  function processImport(st, det, hash) {
     var products = Storage.getProducts();
-    var data     = st.parsed.data;
+    var rows     = det.filteredRows;
     var now      = new Date().toISOString();
     var importId = Utils.generateId();
 
@@ -244,15 +228,14 @@ var PageCsvImport = (function() {
 
     var salesBatch   = [];
     var unmatched    = {};
-    var matchedSet   = {};
     var matchedCount = 0;
 
-    data.forEach(function(row) {
-      if (_tab === 'amazon') {
-        var sku = (row[mapping.sku] || '').trim();
+    if (det.format === 'amazon') {
+      rows.forEach(function(row) {
+        var sku = (row['SKU'] || '').trim();
         if (!sku) return;
-        var qty = parseInt(row[mapping.qty]) || 0;
-        var date = mapping.date ? (row[mapping.date] || '') : '';
+        var qty  = parseInt(row['数量']) || 0;
+        var date = (row['日付/時間'] || '').trim();
         var product = amazonMap[sku.toLowerCase()];
         if (product) {
           salesBatch.push({
@@ -260,30 +243,30 @@ var PageCsvImport = (function() {
             productId: product.id, channel: 'amazon',
             quantity: qty, orderDate: date, importedAt: now
           });
-          matchedSet[sku] = (matchedSet[sku] || 0) + qty;
           matchedCount++;
         } else {
           unmatched[sku] = (unmatched[sku] || 0) + qty;
         }
-      } else {
-        var mgmt = (row[mapping.mgmt] || '').trim();
+      });
+    } else {
+      // sellernote: each row = 1 unit
+      rows.forEach(function(row) {
+        var mgmt = (row['SKU/管理番号'] || '').trim();
         if (!mgmt) return;
-        var qty2 = parseInt(row[mapping.qty]) || 0;
-        var date2 = mapping.date ? (row[mapping.date] || '') : '';
-        var product2 = frimaMap[mgmt.toLowerCase()];
-        if (product2) {
+        var date = (row['売上日'] || '').trim();
+        var product = frimaMap[mgmt.toLowerCase()];
+        if (product) {
           salesBatch.push({
             id: Utils.generateId(), importId: importId,
-            productId: product2.id, channel: 'frima',
-            quantity: qty2, orderDate: date2, importedAt: now
+            productId: product.id, channel: 'frima',
+            quantity: 1, orderDate: date, importedAt: now
           });
-          matchedSet[mgmt] = (matchedSet[mgmt] || 0) + qty2;
           matchedCount++;
         } else {
-          unmatched[mgmt] = (unmatched[mgmt] || 0) + qty2;
+          unmatched[mgmt] = (unmatched[mgmt] || 0) + 1;
         }
-      }
-    });
+      });
+    }
 
     // Deduct inventory per product
     var invDelta = {};
@@ -316,36 +299,33 @@ var PageCsvImport = (function() {
       Storage.updateProduct(pid, changes);
     });
 
-    // Save sales
     Storage.addSalesBatch(salesBatch);
 
-    // Build unmatched array
     var unmatchedArr = Object.keys(unmatched).map(function(k){ return { key: k, qty: unmatched[k] }; });
 
-    // Save import record
     Storage.addImport({
       id: importId, type: _tab,
       filename: st.filename,
       importedAt: now,
-      rowCount: data.length,
+      rowCount: rows.length,
       matchedCount: matchedCount,
       unmatchedCount: unmatchedArr.length,
       unmatched: unmatchedArr,
-      hash: hash,
-      mapping: mapping
+      hash: hash
     });
 
-    // Clear parsed state
-    _state[_tab].parsed   = null;
+    _state[_tab].raw      = null;
     _state[_tab].filename = '';
+    _state[_tab].detected = null;
 
     var msg = '取込完了：照合済み ' + matchedCount + '件、未照合 ' + unmatchedArr.length + '件';
     Utils.toast(msg, unmatchedArr.length > 0 ? 'warning' : 'success');
     render(_container);
   }
 
+  // ---- Events ----
+
   function bindEvents(container) {
-    // Tabs
     container.querySelectorAll('[data-tab]').forEach(function(btn) {
       btn.addEventListener('click', function() {
         _tab = this.dataset.tab;
@@ -353,7 +333,6 @@ var PageCsvImport = (function() {
       });
     });
 
-    // Upload zone
     var zone  = container.querySelector('#uploadZone');
     var input = container.querySelector('#csvFileInput');
     if (zone) {
@@ -379,15 +358,14 @@ var PageCsvImport = (function() {
     var btnClear = container.querySelector('#btnClearCsv');
     if (btnClear) {
       btnClear.addEventListener('click', function() {
-        _state[_tab].parsed   = null;
+        _state[_tab].raw      = null;
         _state[_tab].filename = '';
+        _state[_tab].detected = null;
         var panel = container.querySelector('#importPanel');
-        if (panel) panel.innerHTML = renderImportPanel();
-        rebindImportPanel(container);
+        if (panel) { panel.innerHTML = renderImportPanel(); rebindPanel(container); }
       });
     }
 
-    // Delete import
     container.querySelectorAll('.btn-del-import').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var id = this.dataset.id;
@@ -403,63 +381,6 @@ var PageCsvImport = (function() {
       });
     });
 
-    // Add to master from unmatched
-    container.querySelectorAll('.btn-add-master').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        var key  = this.dataset.key;
-        var type = this.dataset.type;
-        App.navigate('master');
-        setTimeout(function() {
-          if (type === 'amazon') {
-            PageMaster.openFormWithSku(key, '');
-          } else {
-            PageMaster.openFormWithSku('', key);
-          }
-        }, 100);
-      });
-    });
-  }
-
-  function readFile(file) {
-    var reader = new FileReader();
-    reader.onload = function(e) {
-      var text = e.target.result;
-      var parsed = Utils.parseCSV(text);
-      _state[_tab].parsed   = parsed;
-      _state[_tab].filename = file.name;
-      // Load saved mapping
-      var saved = Storage.getColMapping(_tab);
-      _state[_tab].mapping  = saved;
-      var panel = _container && _container.querySelector('#importPanel');
-      if (panel) panel.innerHTML = renderImportPanel();
-      if (_container) rebindImportPanel(_container);
-    };
-    reader.readAsText(file, 'UTF-8');
-  }
-
-  function rebindImportPanel(container) {
-    var btnImport = container.querySelector('#btnDoImport');
-    if (btnImport) btnImport.addEventListener('click', doImport);
-    var btnClear  = container.querySelector('#btnClearCsv');
-    if (btnClear) {
-      btnClear.addEventListener('click', function() {
-        _state[_tab].parsed   = null;
-        _state[_tab].filename = '';
-        var panel = container.querySelector('#importPanel');
-        if (panel) panel.innerHTML = renderImportPanel();
-        rebindImportPanel(container);
-      });
-    }
-    var zoneNew = container.querySelector('#uploadZone');
-    var inputNew = container.querySelector('#csvFileInput');
-    if (zoneNew) {
-      zoneNew.addEventListener('click', function() { if (inputNew) inputNew.click(); });
-    }
-    if (inputNew) {
-      inputNew.addEventListener('change', function() {
-        if (this.files[0]) readFile(this.files[0]);
-      });
-    }
     container.querySelectorAll('.btn-add-master').forEach(function(btn) {
       btn.addEventListener('click', function() {
         var key  = this.dataset.key;
@@ -471,6 +392,67 @@ var PageCsvImport = (function() {
         }, 100);
       });
     });
+  }
+
+  function rebindPanel(container) {
+    var btnImport = container.querySelector('#btnDoImport');
+    if (btnImport) btnImport.addEventListener('click', doImport);
+
+    var btnClear = container.querySelector('#btnClearCsv');
+    if (btnClear) {
+      btnClear.addEventListener('click', function() {
+        _state[_tab].raw      = null;
+        _state[_tab].filename = '';
+        _state[_tab].detected = null;
+        var panel = container.querySelector('#importPanel');
+        if (panel) { panel.innerHTML = renderImportPanel(); rebindPanel(container); }
+      });
+    }
+
+    var zone  = container.querySelector('#uploadZone');
+    var input = container.querySelector('#csvFileInput');
+    if (zone) {
+      zone.addEventListener('click', function() { if (input) input.click(); });
+      zone.addEventListener('dragover', function(e) { e.preventDefault(); zone.classList.add('drag-over'); });
+      zone.addEventListener('dragleave', function() { zone.classList.remove('drag-over'); });
+      zone.addEventListener('drop', function(e) {
+        e.preventDefault();
+        zone.classList.remove('drag-over');
+        var f = e.dataTransfer.files[0];
+        if (f) readFile(f);
+      });
+    }
+    if (input) {
+      input.addEventListener('change', function() {
+        if (this.files[0]) readFile(this.files[0]);
+      });
+    }
+
+    container.querySelectorAll('.btn-add-master').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var key  = this.dataset.key;
+        var type = this.dataset.type;
+        App.navigate('master');
+        setTimeout(function() {
+          if (type === 'amazon') PageMaster.openFormWithSku(key, '');
+          else                   PageMaster.openFormWithSku('', key);
+        }, 100);
+      });
+    });
+  }
+
+  function readFile(file) {
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      var text = e.target.result;
+      var det  = detectFormat(text, _tab);
+      _state[_tab].raw      = text;
+      _state[_tab].filename = file.name;
+      _state[_tab].detected = det;
+      var panel = _container && _container.querySelector('#importPanel');
+      if (panel) { panel.innerHTML = renderImportPanel(); rebindPanel(_container); }
+    };
+    reader.readAsText(file, 'UTF-8');
   }
 
   return { render: render };
