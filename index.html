@@ -63,6 +63,13 @@
   <!-- Toast -->
   <div id="toastContainer" class="toast-container" aria-live="polite"></div>
 
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then(function(reg) {
+        reg.update();
+      });
+    }
+  </script>
   <script src="js/storage.js?v=20250515"></script>
   <script src="js/sync.js?v=20250515"></script>
   <script src="js/utils.js?v=20250515"></script>
