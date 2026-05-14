@@ -9,6 +9,7 @@
 <body>
   <div id="app">
     <nav class="navbar">
+      <button class="back-btn hidden" id="backBtn">‹ 戻る</button>
       <div class="navbar-brand">
         <span class="brand-a">アマ</span><span class="brand-f">フリ</span>比較表
       </div>
@@ -25,6 +26,26 @@
     </nav>
 
     <main id="pageContent" class="main-content"></main>
+
+    <!-- Bottom Tab Bar (mobile) -->
+    <nav class="tab-bar" id="tabBar">
+      <a class="tab-item" data-page="overview">
+        <span class="tab-icon">📊</span>
+        <span class="tab-label">一覧</span>
+      </a>
+      <a class="tab-item" data-page="master">
+        <span class="tab-icon">📦</span>
+        <span class="tab-label">商品</span>
+      </a>
+      <a class="tab-item" data-page="csv-import">
+        <span class="tab-icon">📥</span>
+        <span class="tab-label">CSV</span>
+      </a>
+      <a class="tab-item" data-page="settings">
+        <span class="tab-icon">⚙️</span>
+        <span class="tab-label">設定</span>
+      </a>
+    </nav>
   </div>
 
   <!-- Modal -->

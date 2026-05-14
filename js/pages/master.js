@@ -54,10 +54,19 @@ var PageMaster = (function() {
             (p.amazonSku        ? 'SKU: ' + Utils.esc(p.amazonSku) + '<br>' : '') +
             (p.sellernoteMgmtNo ? '管理番号: ' + Utils.esc(p.sellernoteMgmtNo) : '') +
           '</div>' +
-          '<div class="product-card-inv">' +
-            '<span class="inv-chip inv-chip-amazon ' + Utils.invClass(aInv, settings) + '">A在庫 ' + Utils.formatNum(aInv) + '</span>' +
-            '<span class="inv-chip inv-chip-frima '  + Utils.invClass(fInv, settings) + '">F在庫 ' + Utils.formatNum(fInv) + '</span>' +
-            '<span class="inv-chip inv-chip-total '  + Utils.invClass(tInv, settings) + '">計 '    + Utils.formatNum(tInv) + '</span>' +
+          '<div class="inv-inline">' +
+            '<div class="inv-inline-row">' +
+              '<span class="inv-inline-label" style="color:#92400E;">A</span>' +
+              '<button class="inv-mini-btn inv-minus" data-id="' + p.id + '" data-ch="amazon">−</button>' +
+              '<span class="inv-mini-val ' + Utils.invClass(aInv, settings) + '" data-id="' + p.id + '" data-ch="amazon">' + aInv + '</span>' +
+              '<button class="inv-mini-btn inv-plus"  data-id="' + p.id + '" data-ch="amazon">＋</button>' +
+            '</div>' +
+            '<div class="inv-inline-row">' +
+              '<span class="inv-inline-label" style="color:#9D174D;">F</span>' +
+              '<button class="inv-mini-btn inv-minus" data-id="' + p.id + '" data-ch="frima">−</button>' +
+              '<span class="inv-mini-val ' + Utils.invClass(fInv, settings) + '" data-id="' + p.id + '" data-ch="frima">' + fInv + '</span>' +
+              '<button class="inv-mini-btn inv-plus"  data-id="' + p.id + '" data-ch="frima">＋</button>' +
+            '</div>' +
           '</div>' +
           (p.memo ? '<div class="text-sm text-muted" style="margin-bottom:8px;">' + Utils.esc(p.memo) + '</div>' : '') +
           '<div class="product-card-actions">' +
@@ -117,6 +126,37 @@ var PageMaster = (function() {
             render(_container);
           }
         );
+      });
+    });
+
+    // Inline inventory +/- buttons
+    container.querySelectorAll('.inv-mini-btn').forEach(function(btn) {
+      btn.addEventListener('click', function(e) {
+        e.stopPropagation();
+        var id  = this.dataset.id;
+        var ch  = this.dataset.ch; // 'amazon' or 'frima'
+        var isPlus = this.classList.contains('inv-plus');
+        var p   = Storage.getProductById(id);
+        if (!p) return;
+
+        var field   = ch === 'amazon' ? 'amazonInventory' : 'frimaInventory';
+        var current = p[field] || 0;
+        var next    = Math.max(0, current + (isPlus ? 1 : -1));
+
+        var changes = {};
+        changes[field] = next;
+        Storage.addInvHistory({ id: Utils.generateId(), productId: id, type: ch,
+          prev: current, next: next, change: next - current,
+          reason: '商品マスターで手動調整', timestamp: new Date().toISOString() });
+        Storage.updateProduct(id, changes);
+
+        // Update display in-place
+        var settings = Storage.getSettings();
+        var valEl = container.querySelector('.inv-mini-val[data-id="' + id + '"][data-ch="' + ch + '"]');
+        if (valEl) {
+          valEl.textContent = next;
+          valEl.className = 'inv-mini-val ' + Utils.invClass(next, settings);
+        }
       });
     });
   }

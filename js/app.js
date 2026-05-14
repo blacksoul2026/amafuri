@@ -2,6 +2,8 @@
 var App = (function() {
 
   var _currentPage = '';
+  var _prevPage    = '';
+  var _prevParams  = {};
 
   var PAGES = {
     overview:   { module: PageOverview,   label: '一覧' },
@@ -16,12 +18,28 @@ var App = (function() {
     var def = PAGES[page];
     if (!def) { navigate('overview'); return; }
 
+    if (_currentPage && _currentPage !== page) {
+      _prevPage   = _currentPage;
+      _prevParams = {};
+    }
     _currentPage = page;
 
-    // Update nav active state (hide detail from nav)
+    // Update desktop nav active state
     document.querySelectorAll('.nav-item').forEach(function(el) {
       el.classList.toggle('active', el.dataset.page === page);
     });
+
+    // Update bottom tab bar active state
+    document.querySelectorAll('.tab-item').forEach(function(el) {
+      el.classList.toggle('active', el.dataset.page === page);
+    });
+
+    // Back button: visible on all pages except overview
+    var backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+      if (page !== 'overview') backBtn.classList.remove('hidden');
+      else                     backBtn.classList.add('hidden');
+    }
 
     // Close mobile menu
     var menu = document.getElementById('navMenu');
@@ -37,12 +55,27 @@ var App = (function() {
   }
 
   function init() {
-    // Nav click — use navigateWithHash so URL stays in sync
+    // Desktop nav click
     document.querySelectorAll('.nav-item').forEach(function(el) {
       el.addEventListener('click', function() {
         navigateWithHash(this.dataset.page);
       });
     });
+
+    // Bottom tab bar click
+    document.querySelectorAll('.tab-item').forEach(function(el) {
+      el.addEventListener('click', function() {
+        navigateWithHash(this.dataset.page);
+      });
+    });
+
+    // Back button
+    var backBtn = document.getElementById('backBtn');
+    if (backBtn) {
+      backBtn.addEventListener('click', function() {
+        navigateWithHash(_prevPage || 'overview');
+      });
+    }
 
     // Mobile toggle
     var toggle = document.getElementById('navToggle');
