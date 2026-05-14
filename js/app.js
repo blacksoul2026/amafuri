@@ -132,4 +132,6 @@ var App = (function() {
 // Boot
 document.addEventListener('DOMContentLoaded', function() {
   App.init();
+  // Auto-pull from cloud if token is set and cloud data is newer
+  setTimeout(function() { Sync.autoSync(); }, 500);
 });

@@ -14,8 +14,12 @@ var Storage = (function() {
     catch(e) { return fallback; }
   }
   function save(key, data) {
-    try { localStorage.setItem(key, JSON.stringify(data)); return true; }
-    catch(e) { console.error('Storage error:', e); return false; }
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+      localStorage.setItem('amafuri_last_modified', new Date().toISOString());
+      if (typeof Sync !== 'undefined' && Sync.scheduleAutoPush) Sync.scheduleAutoPush();
+      return true;
+    } catch(e) { console.error('Storage error:', e); return false; }
   }
 
   // ---- Products ----

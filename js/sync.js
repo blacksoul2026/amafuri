@@ -106,5 +106,40 @@ var Sync = (function() {
     localStorage.removeItem(GIST_KEY);
   }
 
-  return { push, pull, getLastSynced, hasToken, setToken, getToken, clearToken };
+  // Debounced auto-push after data changes
+  var _pushTimer = null;
+  function scheduleAutoPush() {
+    if (!getToken()) return;
+    if (_pushTimer) clearTimeout(_pushTimer);
+    _pushTimer = setTimeout(function() {
+      _pushTimer = null;
+      push().catch(function(e) { console.warn('Auto-push failed:', e.message); });
+    }, 4000);
+  }
+
+  // Auto-pull on app open if cloud data is newer than local
+  function autoSync() {
+    if (!getToken()) return;
+    var localMod = localStorage.getItem('amafuri_last_modified') || '';
+    findGist().then(function(gist) {
+      if (!gist) return;
+      setGistId(gist.id);
+      var cloudTime = gist.updated_at || '';
+      if (!localMod || cloudTime > localMod) {
+        return fetch(API_BASE + '/gists/' + gist.id, { headers: headers() })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(g) {
+            if (!g) return;
+            var file = g.files[GIST_FILE];
+            if (!file || !file.content) return;
+            Storage.importAll(file.content);
+            localStorage.setItem('amafuri_last_modified', cloudTime);
+            Utils.toast('クラウドからデータを同期しました', 'success');
+            if (typeof App !== 'undefined') App.navigate(App.currentPage() || 'overview');
+          });
+      }
+    }).catch(function(e) { console.warn('Auto-sync failed:', e.message); });
+  }
+
+  return { push, pull, getLastSynced, hasToken, setToken, getToken, clearToken, scheduleAutoPush, autoSync };
 })();
