@@ -1,5 +1,5 @@
 /* Service Worker - キャッシュ管理 */
-var CACHE_VERSION = 'v20250515';
+var CACHE_VERSION = 'v20260517';
 var CACHE_NAME = 'amafuri-' + CACHE_VERSION;
 
 /* インストール時：即座に有効化 */
