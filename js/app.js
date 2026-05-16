@@ -8,14 +8,16 @@ var Sync = (function() {
   var _syncing = false;
   var _lastSyncAt = null;
 
+  var _DEFAULT_URL   = 'https://amafuri-worker.541015km.workers.dev';
+  var _DEFAULT_TOKEN = 'K9UQGOKXB4uz0yHSLrNZTg-iy7uiVETn';
+
   function getConfig() {
-    var url   = localStorage.getItem('amafuri_worker_url');
-    var token = localStorage.getItem('amafuri_api_token');
-    if (!url || !token) return null;
+    var url   = localStorage.getItem('amafuri_worker_url')   || _DEFAULT_URL;
+    var token = localStorage.getItem('amafuri_api_token') || _DEFAULT_TOKEN;
     return { url: url.replace(/\/+$/, ''), token: token };
   }
 
-  function isEnabled() { return !!getConfig(); }
+  function isEnabled() { return true; }
 
   /* 起動時: クラウドが新しければ取得 */
   async function pullOnOpen() {
@@ -946,7 +948,7 @@ var App = (function() {
       html += '<div class="import-result error">⚠ 認識できません。<br>';
       html += _csvTab==='amazon'
         ? '必要な列: SKU、数量、トランザクションの種類、日付/時間'
-        : '必要な列: SKU/管理番号、取引状態、売上日';
+        : '必要な列: 「SKU/管理番号・取引状態・売上日」または「管理番号・ステータス・売れた日」';
       html += '</div>';
       html += '<div class="import-btn-wrap"><button class="clear-btn" onclick="App.clearCsv()">クリア</button></div>';
     }
@@ -996,8 +998,14 @@ var App = (function() {
   function csvPreview(det) {
     var rows = det.filteredRows.slice(0,5);
     if (!rows.length) return '';
-    var cols   = det.format==='amazon' ? ['日付/時間','SKU','数量']           : ['売上日','SKU/管理番号','商品名'];
-    var labels = det.format==='amazon' ? ['注文日時','SKU','数量']            : ['売上日','管理番号','商品名'];
+    var cols, labels;
+    if (det.format==='amazon') {
+      cols=['日付/時間','SKU','数量']; labels=['注文日時','SKU','数量'];
+    } else if (det.subformat==='sales') {
+      cols=['売れた日','管理番号','商品名']; labels=['売れた日','管理番号','商品名'];
+    } else {
+      cols=['売上日','SKU/管理番号','商品名']; labels=['売上日','管理番号','商品名'];
+    }
     var html = '<div class="csv-preview"><table><thead><tr>';
     labels.forEach(function(l){ html += '<th>'+U.esc(l)+'</th>'; });
     html += '</tr></thead><tbody>';
@@ -1048,10 +1056,23 @@ var App = (function() {
   function detectFrima(text) {
     var parsed = U.parseCSV(text);
     if (!parsed||!parsed.headers.length) return null;
-    var req = ['SKU/管理番号','取引状態','売上日'];
-    if (req.some(function(c){ return parsed.headers.indexOf(c)<0; })) return null;
-    var filtered = parsed.data.filter(function(r){ return (r['取引状態']||'').trim()==='取引完了'; });
-    return { format:'frima', parsed:parsed, filteredRows:filtered };
+    var hdr = parsed.headers;
+
+    // 形式A: 月別/年別/期間CSV (_exportListingsCSV)
+    // 列: 売上日, SKU/管理番号, 取引状態, ...
+    if (['SKU/管理番号','取引状態','売上日'].every(function(c){ return hdr.indexOf(c)>=0; })) {
+      var filtered = parsed.data.filter(function(r){ return (r['取引状態']||'').trim()==='取引完了'; });
+      return { format:'frima', subformat:'listings', skuCol:'SKU/管理番号', dateCol:'売上日', parsed:parsed, filteredRows:filtered };
+    }
+
+    // 形式B: 現在の表示CSV (_exportSalesCSV)
+    // 列: 管理番号, ステータス, 売れた日, ...
+    if (['管理番号','ステータス','売れた日'].every(function(c){ return hdr.indexOf(c)>=0; })) {
+      var filtered = parsed.data.filter(function(r){ return (r['ステータス']||'').trim()==='取引完了'; });
+      return { format:'frima', subformat:'sales', skuCol:'管理番号', dateCol:'売れた日', parsed:parsed, filteredRows:filtered };
+    }
+
+    return null;
   }
 
   function doImport() {
@@ -1089,10 +1110,12 @@ var App = (function() {
         else unmatched[sku]=(unmatched[sku]||0)+qty;
       });
     } else {
+      var skuCol  = det.skuCol  || 'SKU/管理番号';
+      var dateCol = det.dateCol || '売上日';
       rows.forEach(function(row){
-        var mgmt=(row['SKU/管理番号']||'').trim(); if(!mgmt) return;
+        var mgmt=(row[skuCol]||'').trim(); if(!mgmt) return;
         var p = frimaMap[mgmt.toLowerCase()];
-        if (p) { sales.push({id:DB.uid(),importId:importId,productId:p.id,channel:'frima',quantity:1,orderDate:(row['売上日']||'').trim(),importedAt:now}); matched++; }
+        if (p) { sales.push({id:DB.uid(),importId:importId,productId:p.id,channel:'frima',quantity:1,orderDate:(row[dateCol]||'').trim(),importedAt:now}); matched++; }
         else unmatched[mgmt]=(unmatched[mgmt]||0)+1;
       });
     }
