@@ -1,0 +1,13 @@
+name = "amafuri-worker"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# KV ネームスペース
+# 作成コマンド: npx wrangler kv namespace create amafuri-data
+# 作成後に下の id を書き換えてください
+[[kv_namespaces]]
+binding = "DATA"
+id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+
+# API_TOKEN は secrets で設定（コマンドラインから）
+# npx wrangler secret put API_TOKEN
