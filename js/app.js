@@ -236,7 +236,7 @@ var DB = (function() {
   return {
     getProducts, saveProducts, addProduct, updateProduct, deleteProduct, getById,
     getSales, addSales, removeSalesByImport,
-    getImports, addImport, deleteImport, findImportByHash,
+    getImports, saveImports, addImport, deleteImport, findImportByHash,
     getHistory, addHistory,
     getSettings, saveSettings,
     exportAll, importAll, clearAll, uid
@@ -974,7 +974,7 @@ var App = (function() {
             '<div class="history-filename">'+U.esc(imp.filename)+'</div>' +
             '<div class="history-meta">'+U.fmtDate(imp.importedAt)+'</div>' +
             '<div class="history-stats">対象: <strong>'+imp.rowCount+'</strong>　照合: <span style="color:var(--success);font-weight:700;">'+imp.matchedCount+'</span>　未照合: <span style="color:var(--warning);font-weight:700;">'+imp.unmatchedCount+'</span></div>' +
-            (imp.unmatched&&imp.unmatched.length ? renderUnmatched(imp.unmatched, imp.type) : '') +
+            (imp.unmatched&&imp.unmatched.length ? renderUnmatched(imp.unmatched, imp.type, imp.id) : '') +
           '</div>' +
           '<button class="history-del-btn" onclick="App.deleteImport(\''+imp.id+'\')">削除</button>' +
         '</div>';
@@ -1018,7 +1018,7 @@ var App = (function() {
     return html;
   }
 
-  function renderUnmatched(unmatched, type) {
+  function renderUnmatched(unmatched, type, importId) {
     var label = type==='amazon' ? 'SKU' : '管理番号';
     var html = '<div class="unmatched-box">⚠ 未照合 '+label+':<br>';
     unmatched.slice(0,5).forEach(function(u){
@@ -1026,8 +1026,20 @@ var App = (function() {
         '<button class="add-master-btn" onclick="App.addToMaster(\''+U.esc(u.key)+'\',\''+type+'\')">商品追加</button></div>';
     });
     if (unmatched.length>5) html += '<div style="font-size:11px;color:#888;padding-top:4px;">他'+(unmatched.length-5)+'件</div>';
+    if (importId) {
+      html += '<button onclick="App.clearUnmatched(\''+importId+'\')" style="margin-top:8px;width:100%;padding:8px;border-radius:8px;background:var(--gray-light);color:var(--text2);font-size:12px;">未照合を非表示にする</button>';
+    }
     html += '</div>';
     return html;
+  }
+
+  function clearUnmatched(importId) {
+    var imports = DB.getImports();
+    var i = imports.findIndex(function(x){ return x.id===importId; });
+    if (i<0) return;
+    imports[i] = Object.assign({}, imports[i], { unmatched:[], unmatchedCount:0 });
+    DB.saveImports(imports);
+    renderCsv(document.getElementById('main'));
   }
 
   function setCsvTab(tab) { _csvTab = tab; renderCsv(document.getElementById('main')); }
@@ -1351,7 +1363,7 @@ var App = (function() {
     switchTab, showDetail, goBack, hideSheet, refreshCurrentTab,
     openProductForm, saveProduct, deleteProduct,
     stepInv, setInv, setDetailPeriod, switchView,
-    setCsvTab, clearCsv, doImport, deleteImport, _doDeleteImport, addToMaster,
+    setCsvTab, clearCsv, doImport, deleteImport, _doDeleteImport, clearUnmatched, addToMaster,
     saveSettings, backupData, restoreData, clearAllData,
     saveSyncConfig, testSync, manualPush, manualPull
   };
