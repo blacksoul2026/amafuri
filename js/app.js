@@ -1140,12 +1140,41 @@ var App = (function() {
   }
 
   function deleteImport(id) {
-    U.confirm('この読込履歴を削除します。\n※在庫は自動では戻りません。', function(){
-      DB.removeSalesByImport(id);
-      DB.deleteImport(id);
-      U.toast('削除しました');
-      renderCsv(document.getElementById('main'));
-    });
+    var imp = DB.getImports().find(function(i){ return i.id===id; });
+    var name = imp ? imp.filename : '';
+    U.showSheet(
+      '<div class="sheet-handle"></div>' +
+      '<div class="sheet-title">読込履歴を削除</div>' +
+      '<div style="padding:0 16px 8px;font-size:14px;color:var(--text2);text-align:center;">'+U.esc(name)+'</div>' +
+      '<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:10px;">' +
+        '<button onclick="App._doDeleteImport(\''+id+'\',true)" style="width:100%;height:50px;border-radius:12px;background:var(--primary-light);color:var(--primary);font-size:15px;font-weight:700;">↩ 在庫を元に戻して削除</button>' +
+        '<button onclick="App._doDeleteImport(\''+id+'\',false)" style="width:100%;height:50px;border-radius:12px;background:var(--gray-light);color:var(--text);font-size:15px;font-weight:600;">在庫はそのまま削除</button>' +
+        '<button onclick="App.hideSheet()" style="width:100%;height:44px;border-radius:12px;background:none;color:var(--text2);font-size:15px;">キャンセル</button>' +
+      '</div>'
+    );
+  }
+
+  function _doDeleteImport(id, restoreInventory) {
+    U.hideSheet();
+    if (restoreInventory) {
+      var sales = DB.getSales().filter(function(s){ return s.importId===id; });
+      var now = new Date().toISOString();
+      var delta = {};
+      sales.forEach(function(s){ delta[s.productId]=delta[s.productId]||{amazon:0,frima:0}; delta[s.productId][s.channel]+=s.quantity||1; });
+      Object.keys(delta).forEach(function(pid){
+        var p = DB.getById(pid); if (!p) return;
+        var d = delta[pid], ch = {};
+        if (d.amazon>0) { var pA=p.amazonInventory||0, nA=pA+d.amazon; ch.amazonInventory=nA; DB.addHistory({productId:pid,type:'amazon',prev:pA,next:nA,change:d.amazon,reason:'CSV削除による復元',timestamp:now}); }
+        if (d.frima>0)  { var pF=p.frimaInventory||0,  nF=pF+d.frima;  ch.frimaInventory=nF;  DB.addHistory({productId:pid,type:'frima', prev:pF,next:nF,change:d.frima, reason:'CSV削除による復元',timestamp:now}); }
+        DB.updateProduct(pid, ch);
+      });
+      U.toast('削除しました（在庫を復元しました）', 'success');
+    } else {
+      U.toast('削除しました', 'success');
+    }
+    DB.removeSalesByImport(id);
+    DB.deleteImport(id);
+    renderCsv(document.getElementById('main'));
   }
 
   function addToMaster(key, type) {
@@ -1322,7 +1351,7 @@ var App = (function() {
     switchTab, showDetail, goBack, hideSheet, refreshCurrentTab,
     openProductForm, saveProduct, deleteProduct,
     stepInv, setInv, setDetailPeriod, switchView,
-    setCsvTab, clearCsv, doImport, deleteImport, addToMaster,
+    setCsvTab, clearCsv, doImport, deleteImport, _doDeleteImport, addToMaster,
     saveSettings, backupData, restoreData, clearAllData,
     saveSyncConfig, testSync, manualPush, manualPull
   };
