@@ -7,7 +7,7 @@ compatibility_date = "2025-01-01"
 # 作成後に下の id を書き換えてください
 [[kv_namespaces]]
 binding = "DATA"
-id = "REPLACE_WITH_YOUR_KV_NAMESPACE_ID"
+id = "530f4c99a7384456a855af864685ae25"
 
 # API_TOKEN は secrets で設定（コマンドラインから）
 # npx wrangler secret put API_TOKEN
