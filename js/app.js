@@ -1094,7 +1094,7 @@ var App = (function() {
     var h = U.hash(st.filename+'|'+det.parsed.data.length+'|'+JSON.stringify(det.parsed.data[0]||{}));
     var existing = DB.findImportByHash(h);
     if (existing) {
-      U.confirm('このCSVはすでに取り込まれています（'+U.fmtDate(existing.importedAt)+'）。\n重複すると在庫が二重減算されます。続けますか？', function(){ processImport(st,det,h); });
+      U.toast('このCSVはすでに取り込み済みです（'+U.fmtDate(existing.importedAt)+'）', 'error');
       return;
     }
     processImport(st, det, h);
