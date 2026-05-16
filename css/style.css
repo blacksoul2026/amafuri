@@ -402,6 +402,16 @@ input.step-val:focus { background: var(--gray-light); border-radius: 8px; }
 .view-toggle-btn { width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--gray);background:transparent; }
 .view-toggle-btn.active { background:var(--primary-light);color:var(--primary); }
 
+/* ===== SORT CHIP ===== */
+.sort-chip { display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 10px;border-radius:13px;background:var(--gray-light);color:var(--text2);font-size:12px;font-weight:600;white-space:nowrap; }
+.sort-chip:active { background:var(--gray-border); }
+
+/* ===== DRAG HANDLE ===== */
+.drag-handle { display:flex;align-items:center;justify-content:center;width:32px;height:32px;color:var(--gray);font-size:18px;cursor:grab;touch-action:none;flex-shrink:0; }
+.drag-handle:active { cursor:grabbing; }
+.drag-handle-cell { width:32px;padding:4px 4px!important;text-align:center!important; }
+.product-grid-item .drag-handle { position:absolute;top:4px;left:4px;width:28px;height:28px;background:rgba(255,255,255,0.85);border-radius:6px;z-index:2; }
+
 /* ===== LIST VIEW ===== */
 .list-view-table { width:100%;border-collapse:collapse; }
 .list-view-table th { font-size:11px;color:var(--text2);font-weight:600;padding:8px 10px;text-align:right;border-bottom:2px solid var(--gray-border);white-space:nowrap;background:var(--gray-light); }

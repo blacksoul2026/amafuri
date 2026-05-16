@@ -411,6 +411,8 @@ var App = (function() {
   var _detailId     = null;
   var _detailPeriod = 'all';
   var _viewMode     = 'grid';
+  var _sortMode     = localStorage.getItem('amafuri_sort') || 'registered';
+  var _dragState    = null;
   var _csvTab       = 'amazon';
   var _csvState     = {
     amazon: { raw:null, filename:'', detected:null },
@@ -472,14 +474,127 @@ var App = (function() {
     renderProducts(document.getElementById('main'));
   }
 
+  /* ---- 並び替え ---- */
+  function sortedProducts(products) {
+    var arr = products.slice();
+    if (_sortMode === 'inventory') {
+      arr.sort(function(a,b){ return (b.totalInventory||0)-(a.totalInventory||0); });
+    } else if (_sortMode === 'sku') {
+      arr.sort(function(a,b){
+        var as = (a.amazonSku||a.sellernoteMgmtNo||a.name||'').toLowerCase();
+        var bs = (b.amazonSku||b.sellernoteMgmtNo||b.name||'').toLowerCase();
+        return as<bs?-1:as>bs?1:0;
+      });
+    } else if (_sortMode === 'manual') {
+      var order = JSON.parse(localStorage.getItem('amafuri_manual_order')||'[]');
+      var idxMap = {};
+      order.forEach(function(id,i){ idxMap[id]=i; });
+      arr.sort(function(a,b){
+        var ai = idxMap[a.id]!==undefined?idxMap[a.id]:99999;
+        var bi = idxMap[b.id]!==undefined?idxMap[b.id]:99999;
+        return ai-bi;
+      });
+    } else {
+      arr.sort(function(a,b){ return (a.createdAt||'').localeCompare(b.createdAt||''); });
+    }
+    return arr;
+  }
+
+  function showSortSheet() {
+    var modes = [
+      {key:'registered', label:'登録した順'},
+      {key:'inventory',  label:'在庫順（多い順）'},
+      {key:'sku',        label:'SKU順'},
+      {key:'manual',     label:'手動で並び替え'},
+    ];
+    var html = '<div class="sheet-handle"></div><div class="sheet-title">並び替え</div>' +
+      '<div style="padding:0 16px 16px;display:flex;flex-direction:column;gap:8px;">';
+    modes.forEach(function(m) {
+      var active = _sortMode===m.key;
+      html += '<button onclick="App.setSort(\''+m.key+'\')" style="width:100%;height:50px;border-radius:12px;text-align:left;padding:0 16px;font-size:15px;font-weight:'+(active?'700':'500')+';background:'+(active?'var(--primary-light)':'var(--gray-light)')+';color:'+(active?'var(--primary)':'var(--text)')+';">'+(active?'✓ ':'')+m.label+'</button>';
+    });
+    html += '<button onclick="App.hideSheet()" style="width:100%;height:44px;border-radius:12px;background:none;color:var(--text2);font-size:15px;">キャンセル</button></div>';
+    U.showSheet(html);
+  }
+
+  function setSort(mode) {
+    _sortMode = mode;
+    localStorage.setItem('amafuri_sort', mode);
+    U.hideSheet();
+    renderProducts(document.getElementById('main'));
+    if (mode==='manual') setTimeout(initDragSort, 80);
+  }
+
+  /* ---- タッチドラッグ並び替え ---- */
+  function initDragSort() {
+    document.querySelectorAll('[data-pid]').forEach(function(item) {
+      var handle = item.querySelector('.drag-handle');
+      if (!handle) return;
+      handle.addEventListener('touchstart', _onDragStart, {passive:false});
+    });
+  }
+
+  function _onDragStart(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    var item = e.currentTarget.closest('[data-pid]');
+    if (!item) return;
+    var touch = e.touches[0];
+    var rect = item.getBoundingClientRect();
+    var ghost = item.cloneNode(true);
+    ghost.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;opacity:0.8;pointer-events:none;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.3);border-radius:12px;margin:0;';
+    document.body.appendChild(ghost);
+    item.style.opacity = '0.3';
+    _dragState = {item:item, ghost:ghost, offsetY:touch.clientY-rect.top, offsetX:touch.clientX-rect.left};
+    document.addEventListener('touchmove', _onDragMove, {passive:false});
+    document.addEventListener('touchend',  _onDragEnd,  {passive:false});
+  }
+
+  function _onDragMove(e) {
+    if (!_dragState) return;
+    e.preventDefault();
+    var touch = e.touches[0];
+    _dragState.ghost.style.top  = (touch.clientY - _dragState.offsetY) + 'px';
+    _dragState.ghost.style.left = (touch.clientX - _dragState.offsetX) + 'px';
+    _dragState.ghost.style.display = 'none';
+    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    _dragState.ghost.style.display = '';
+    var target = el && el.closest('[data-pid]');
+    if (target && target !== _dragState.item && target.parentNode === _dragState.item.parentNode) {
+      var siblings = Array.from(_dragState.item.parentNode.querySelectorAll(':scope>[data-pid]'));
+      var fi = siblings.indexOf(_dragState.item);
+      var ti = siblings.indexOf(target);
+      if (fi > ti) _dragState.item.parentNode.insertBefore(_dragState.item, target);
+      else         _dragState.item.parentNode.insertBefore(_dragState.item, target.nextSibling);
+    }
+  }
+
+  function _onDragEnd(e) {
+    if (!_dragState) return;
+    document.removeEventListener('touchmove', _onDragMove);
+    document.removeEventListener('touchend',  _onDragEnd);
+    _dragState.ghost.remove();
+    _dragState.item.style.opacity = '';
+    var parent = _dragState.item.parentNode;
+    var newOrder = Array.from(parent.querySelectorAll(':scope>[data-pid]')).map(function(el){ return el.dataset.pid; });
+    localStorage.setItem('amafuri_manual_order', JSON.stringify(newOrder));
+    _dragState = null;
+  }
+
   function renderProducts(main) {
-    var products = DB.getProducts();
+    var products = sortedProducts(DB.getProducts());
     var settings = DB.getSettings();
     var html = '';
-
+    var sortLabels = {registered:'登録順', inventory:'在庫順', sku:'SKU順', manual:'手動'};
     var gridActive = _viewMode === 'grid';
     html += '<div class="grid-action-bar">' +
-      '<span class="grid-count">' + products.length + '件</span>' +
+      '<div style="display:flex;align-items:center;gap:6px;">' +
+        '<span class="grid-count">' + products.length + '件</span>' +
+        '<button class="sort-chip" onclick="App.showSortSheet()">' +
+          '<svg viewBox="0 0 24 24" width="13" height="13" fill="currentColor" style="vertical-align:-1px"><path d="M3 6h18v2H3zm3 5h12v2H6zm3 5h6v2H9z"/></svg> ' +
+          sortLabels[_sortMode] +
+        '</button>' +
+      '</div>' +
       '<div style="display:flex;align-items:center;gap:8px;">' +
         '<div class="view-toggle">' +
           '<button class="view-toggle-btn'+(gridActive?' active':'')+'" onclick="App.switchView(\'grid\')" title="グリッド">' +
@@ -508,7 +623,10 @@ var App = (function() {
         var cls  = U.invClass(tInv, settings);
         var stockCls = cls==='danger' ? ' danger' : cls==='warn' ? ' warn' : '';
         var colorSize = [p.color, p.size].filter(Boolean).join(' / ');
-        html += '<div class="product-grid-item" onclick="App.showDetail(\'' + p.id + '\')">' +
+        var dragHandle = _sortMode==='manual'
+          ? '<div class="drag-handle" onclick="event.stopPropagation()">&#9776;</div>' : '';
+        html += '<div class="product-grid-item" data-pid="'+p.id+'" onclick="App.showDetail(\'' + p.id + '\')">' +
+          dragHandle +
           (p.imageData
             ? '<img src="'+p.imageData+'" alt="'+U.esc(p.name)+'" loading="lazy">'
             : '<div class="product-grid-placeholder">📦</div>') +
@@ -520,6 +638,7 @@ var App = (function() {
       html += '</div>';
     }
     main.innerHTML = html;
+    if (_sortMode==='manual') setTimeout(initDragSort, 80);
   }
 
   function renderProductListHTML(products, settings) {
@@ -527,16 +646,9 @@ var App = (function() {
     var now = new Date();
     var since30 = new Date(now.getTime() - 30*864e5);
     var since90 = new Date(now.getTime() - 90*864e5);
+    var isManual = _sortMode === 'manual';
 
-    var html = '<div style="overflow-x:auto;"><table class="list-view-table">';
-    html += '<thead><tr>' +
-      '<th>商品</th>' +
-      '<th>Amazon</th>' +
-      '<th>フリマ</th>' +
-      '<th>合計</th>' +
-      '<th>30日売上</th>' +
-      '<th>残月数</th>' +
-    '</tr></thead><tbody>';
+    var html = '<div style="overflow-x:auto;"><table class="list-view-table"><tbody>';
 
     products.forEach(function(p) {
       var sales30 = allSales.filter(function(s){
@@ -562,7 +674,8 @@ var App = (function() {
       else if (monthsLeft >= 1.5) { monthsCls = 'warn'; monthsTxt = monthsLeft.toFixed(1)+'ヶ月'; }
       else { monthsCls = 'danger'; monthsTxt = monthsLeft.toFixed(1)+'ヶ月'; }
 
-      html += '<tr onclick="App.showDetail(\''+p.id+'\')" style="cursor:pointer;">' +
+      html += '<tr data-pid="'+p.id+'" onclick="App.showDetail(\''+p.id+'\')" style="cursor:pointer;">' +
+        (isManual ? '<td class="drag-handle-cell"><div class="drag-handle" onclick="event.stopPropagation()">&#9776;</div></td>' : '') +
         '<td><div class="list-name">'+U.esc(p.name)+'</div>'+(colorSize?'<div class="list-sub">'+U.esc(colorSize)+'</div>':'')+'</td>' +
         '<td><span class="list-num '+(U.invClass(aInv,settings))+'">'+aInv+'</span></td>' +
         '<td><span class="list-num '+(U.invClass(fInv,settings))+'">'+fInv+'</span></td>' +
@@ -1383,7 +1496,7 @@ var App = (function() {
   return {
     switchTab, showDetail, goBack, hideSheet, refreshCurrentTab,
     openProductForm, saveProduct, deleteProduct,
-    stepInv, setInv, setDetailPeriod, switchView,
+    stepInv, setInv, setDetailPeriod, switchView, showSortSheet, setSort,
     setCsvTab, clearCsv, doImport, deleteImport, _doDeleteImport, clearUnmatched, addToMaster,
     saveSettings, backupData, restoreData, clearAllData,
     saveSyncConfig, testSync, manualPush, manualPull
