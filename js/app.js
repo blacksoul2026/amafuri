@@ -1057,12 +1057,30 @@ var App = (function() {
   }
 
   function detectAmazon(text) {
-    var parsed = U.parseCSVAutoHeader(text, ['SKU','数量','トランザクションの種類']);
+    // Amazonは列名が将来変わる可能性があるため候補リストで柔軟に対応
+    var SKU_COLS  = ['SKU'];
+    var QTY_COLS  = ['数量', '個数', '数'];
+    var TYPE_COLS = ['トランザクションの種類', '取引種別', '取引タイプ'];
+    var DATE_COLS = ['日付/時間', '注文日', '日付', '取引日時', '日時'];
+
+    function findCol(headers, cands) {
+      for (var i=0; i<cands.length; i++) { if (headers.indexOf(cands[i])>=0) return cands[i]; }
+      return null;
+    }
+
+    // ヘッダー行の検索はSKU+数量のみ必須（他は後で候補から探す）
+    var parsed = U.parseCSVAutoHeader(text, ['SKU','数量']);
     if (!parsed||!parsed.headers.length) return null;
-    var req = ['SKU','数量','トランザクションの種類','日付/時間'];
-    if (req.some(function(c){ return parsed.headers.indexOf(c)<0; })) return null;
-    var filtered = parsed.data.filter(function(r){ return (r['トランザクションの種類']||'').trim()==='注文'; });
-    return { format:'amazon', parsed:parsed, filteredRows:filtered };
+
+    var skuCol  = findCol(parsed.headers, SKU_COLS);
+    var qtyCol  = findCol(parsed.headers, QTY_COLS);
+    var typeCol = findCol(parsed.headers, TYPE_COLS);
+    var dateCol = findCol(parsed.headers, DATE_COLS);
+
+    if (!skuCol || !qtyCol || !typeCol) return null;
+
+    var filtered = parsed.data.filter(function(r){ return (r[typeCol]||'').trim()==='注文'; });
+    return { format:'amazon', parsed:parsed, filteredRows:filtered, skuCol:skuCol, qtyCol:qtyCol, typeCol:typeCol, dateCol:dateCol||'' };
   }
 
   function detectFrima(text) {
@@ -1114,11 +1132,14 @@ var App = (function() {
 
     var sales=[], unmatched={}, matched=0;
     if (det.format==='amazon') {
+      var aSkuCol  = det.skuCol  || 'SKU';
+      var aQtyCol  = det.qtyCol  || '数量';
+      var aDateCol = det.dateCol || '日付/時間';
       rows.forEach(function(row){
-        var sku = (row['SKU']||'').trim(); if (!sku) return;
-        var qty = parseInt(row['数量'])||0;
+        var sku = (row[aSkuCol]||'').trim(); if (!sku) return;
+        var qty = parseInt(row[aQtyCol])||0;
         var p = amazonMap[sku.toLowerCase()];
-        if (p) { sales.push({id:DB.uid(),importId:importId,productId:p.id,channel:'amazon',quantity:qty,orderDate:(row['日付/時間']||'').trim(),importedAt:now}); matched++; }
+        if (p) { sales.push({id:DB.uid(),importId:importId,productId:p.id,channel:'amazon',quantity:qty,orderDate:(row[aDateCol]||'').trim(),importedAt:now}); matched++; }
         else unmatched[sku]=(unmatched[sku]||0)+qty;
       });
     } else {
