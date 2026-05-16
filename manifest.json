@@ -1,0 +1,16 @@
+{
+  "name": "アマフリ管理",
+  "short_name": "アマフリ",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#FFFFFF",
+  "theme_color": "#E53935",
+  "icons": [
+    {
+      "src": "icon.PNG",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

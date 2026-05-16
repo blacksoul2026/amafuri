@@ -408,6 +408,7 @@ var App = (function() {
   var _tab          = 'products';
   var _detailId     = null;
   var _detailPeriod = 'all';
+  var _viewMode     = 'grid';
   var _csvTab       = 'amazon';
   var _csvState     = {
     amazon: { raw:null, filename:'', detected:null },
@@ -464,14 +465,30 @@ var App = (function() {
      PRODUCTS TAB
      ==================== */
 
+  function switchView(mode) {
+    _viewMode = mode;
+    renderProducts(document.getElementById('main'));
+  }
+
   function renderProducts(main) {
     var products = DB.getProducts();
     var settings = DB.getSettings();
     var html = '';
 
+    var gridActive = _viewMode === 'grid';
     html += '<div class="grid-action-bar">' +
       '<span class="grid-count">' + products.length + '件</span>' +
-      '<button class="add-btn" onclick="App.openProductForm(null)">＋ 追加</button>' +
+      '<div style="display:flex;align-items:center;gap:8px;">' +
+        '<div class="view-toggle">' +
+          '<button class="view-toggle-btn'+(gridActive?' active':'')+'" onclick="App.switchView(\'grid\')" title="グリッド">' +
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M3 3h8v8H3zm10 0h8v8h-8zM3 13h8v8H3zm10 0h8v8h-8z"/></svg>' +
+          '</button>' +
+          '<button class="view-toggle-btn'+(!gridActive?' active':'')+'" onclick="App.switchView(\'list\')" title="一覧">' +
+            '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M3 4h18v2H3zm0 7h18v2H3zm0 7h18v2H3z"/></svg>' +
+          '</button>' +
+        '</div>' +
+        '<button class="add-btn" onclick="App.openProductForm(null)">＋ 追加</button>' +
+      '</div>' +
     '</div>';
 
     if (products.length === 0) {
@@ -480,6 +497,8 @@ var App = (function() {
         '<div class="empty-title">商品が登録されていません</div>' +
         '<div class="empty-desc">右上の「＋ 追加」から登録してください</div>' +
       '</div>';
+    } else if (_viewMode === 'list') {
+      html += renderProductListHTML(products, settings);
     } else {
       html += '<div class="product-grid">';
       products.forEach(function(p) {
@@ -499,6 +518,60 @@ var App = (function() {
       html += '</div>';
     }
     main.innerHTML = html;
+  }
+
+  function renderProductListHTML(products, settings) {
+    var allSales = DB.getSales();
+    var now = new Date();
+    var since30 = new Date(now.getTime() - 30*864e5);
+    var since90 = new Date(now.getTime() - 90*864e5);
+
+    var html = '<div style="overflow-x:auto;"><table class="list-view-table">';
+    html += '<thead><tr>' +
+      '<th>商品</th>' +
+      '<th>Amazon</th>' +
+      '<th>フリマ</th>' +
+      '<th>合計</th>' +
+      '<th>30日売上</th>' +
+      '<th>残月数</th>' +
+    '</tr></thead><tbody>';
+
+    products.forEach(function(p) {
+      var sales30 = allSales.filter(function(s){
+        return s.productId===p.id && new Date(s.orderDate||s.importedAt) >= since30;
+      });
+      var sales90 = allSales.filter(function(s){
+        return s.productId===p.id && new Date(s.orderDate||s.importedAt) >= since90;
+      });
+      var sold30 = sales30.reduce(function(n,s){ return n+(s.quantity||0); }, 0);
+      var sold90 = sales90.reduce(function(n,s){ return n+(s.quantity||0); }, 0);
+      var avgPerMonth = sold90 / 3;
+      var tInv = p.totalInventory||0;
+      var aInv = p.amazonInventory||0;
+      var fInv = p.frimaInventory||0;
+      var monthsLeft = avgPerMonth > 0 ? tInv / avgPerMonth : null;
+
+      var invCls = U.invClass(tInv, settings);
+      var colorSize = [p.color, p.size].filter(Boolean).join(' / ');
+
+      var monthsCls, monthsTxt;
+      if (monthsLeft === null) { monthsCls = 'none'; monthsTxt = '--'; }
+      else if (monthsLeft >= 3) { monthsCls = 'good'; monthsTxt = monthsLeft.toFixed(1)+'ヶ月'; }
+      else if (monthsLeft >= 1.5) { monthsCls = 'warn'; monthsTxt = monthsLeft.toFixed(1)+'ヶ月'; }
+      else { monthsCls = 'danger'; monthsTxt = monthsLeft.toFixed(1)+'ヶ月'; }
+
+      html += '<tr onclick="App.showDetail(\''+p.id+'\')" style="cursor:pointer;">' +
+        '<td><div class="list-name">'+U.esc(p.name)+'</div>'+(colorSize?'<div class="list-sub">'+U.esc(colorSize)+'</div>':'')+'</td>' +
+        '<td><span class="list-num '+(U.invClass(aInv,settings))+'">'+aInv+'</span></td>' +
+        '<td><span class="list-num '+(U.invClass(fInv,settings))+'">'+fInv+'</span></td>' +
+        '<td><span class="list-num '+invCls+'">'+tInv+'</span></td>' +
+        '<td>'+sold30+'</td>' +
+        '<td><span class="list-months '+monthsCls+'">'+monthsTxt+'</span></td>' +
+      '</tr>';
+    });
+
+    html += '</tbody></table></div>';
+    return html;
   }
 
   /* ====================
@@ -598,7 +671,9 @@ var App = (function() {
       '<div class="inv-channel-label '+ch+'">'+label+'</div>' +
       '<div class="inv-stepper">' +
         '<button class="step-btn" onclick="App.stepInv(\''+id+'\',\''+ch+'\',-1)">−</button>' +
-        '<div class="step-val '+cls+'" id="inv-'+ch+'">'+val+'</div>' +
+        '<input type="number" inputmode="numeric" class="step-val '+cls+'" id="inv-'+ch+'" value="'+val+'" min="0"' +
+          ' onchange="App.setInv(\''+id+'\',\''+ch+'\',this.value)"' +
+          ' onfocus="this.select()">' +
         '<button class="step-btn" onclick="App.stepInv(\''+id+'\',\''+ch+'\',1)">＋</button>' +
       '</div>' +
     '</div>';
@@ -690,12 +765,27 @@ var App = (function() {
     var field = ch==='amazon' ? 'amazonInventory' : 'frimaInventory';
     var prev  = p[field]||0;
     var next  = Math.max(0, prev+delta);
+    _applyInv(id, ch, prev, next, '手動調整');
+  }
+
+  function setInv(id, ch, rawVal) {
+    var next = Math.max(0, parseInt(rawVal)||0);
+    var p = DB.getById(id);
+    if (!p) return;
+    var field = ch==='amazon' ? 'amazonInventory' : 'frimaInventory';
+    var prev = p[field]||0;
+    if (next === prev) return;
+    _applyInv(id, ch, prev, next, '手動入力');
+  }
+
+  function _applyInv(id, ch, prev, next, reason) {
+    var field = ch==='amazon' ? 'amazonInventory' : 'frimaInventory';
     var changes = {}; changes[field] = next;
-    DB.addHistory({ productId:id, type:ch, prev:prev, next:next, change:next-prev, reason:'手動調整', timestamp:new Date().toISOString() });
+    DB.addHistory({ productId:id, type:ch, prev:prev, next:next, change:next-prev, reason:reason, timestamp:new Date().toISOString() });
     DB.updateProduct(id, changes);
     var settings = DB.getSettings();
     var valEl = document.getElementById('inv-'+ch);
-    if (valEl) { valEl.textContent = next; valEl.className = 'step-val '+U.invClass(next,settings); }
+    if (valEl) { valEl.value = next; valEl.className = 'step-val '+U.invClass(next,settings); }
     var p2 = DB.getById(id);
     var totEl = document.getElementById('inv-total');
     if (totEl) totEl.textContent = p2 ? (p2.totalInventory||0) : 0;
@@ -1208,7 +1298,7 @@ var App = (function() {
   return {
     switchTab, showDetail, goBack, hideSheet, refreshCurrentTab,
     openProductForm, saveProduct, deleteProduct,
-    stepInv, setDetailPeriod,
+    stepInv, setInv, setDetailPeriod, switchView,
     setCsvTab, clearCsv, doImport, deleteImport, addToMaster,
     saveSettings, backupData, restoreData, clearAllData,
     saveSyncConfig, testSync, manualPush, manualPull

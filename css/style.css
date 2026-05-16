@@ -384,8 +384,41 @@ img { max-width: 100%; display: block; }
   text-align: center;
   min-width: 48px;
 }
+input.step-val {
+  border: none;
+  background: transparent;
+  outline: none;
+  width: 72px;
+  -moz-appearance: textfield;
+}
+input.step-val::-webkit-outer-spin-button,
+input.step-val::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+input.step-val:focus { background: var(--gray-light); border-radius: 8px; }
 .step-val.warn   { color: var(--warning); }
 .step-val.danger { color: var(--danger); }
+
+/* ===== VIEW TOGGLE ===== */
+.view-toggle { display:flex; gap:4px; }
+.view-toggle-btn { width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;color:var(--gray);background:transparent; }
+.view-toggle-btn.active { background:var(--primary-light);color:var(--primary); }
+
+/* ===== LIST VIEW ===== */
+.list-view-table { width:100%;border-collapse:collapse; }
+.list-view-table th { font-size:11px;color:var(--text2);font-weight:600;padding:8px 10px;text-align:right;border-bottom:2px solid var(--gray-border);white-space:nowrap;background:var(--gray-light); }
+.list-view-table th:first-child { text-align:left; }
+.list-view-table td { font-size:13px;padding:10px 10px;border-bottom:1px solid var(--gray-border);text-align:right;vertical-align:middle; }
+.list-view-table td:first-child { text-align:left;max-width:130px; }
+.list-view-table tr:active td { background:var(--gray-light); }
+.list-name { font-size:13px;font-weight:600;color:var(--text);line-height:1.3; }
+.list-sub  { font-size:11px;color:var(--text2);margin-top:2px; }
+.list-num  { font-size:15px;font-weight:700; }
+.list-num.warn   { color:var(--warning); }
+.list-num.danger { color:var(--danger); }
+.list-months { font-size:12px;font-weight:700;padding:2px 6px;border-radius:10px;display:inline-block; }
+.list-months.good   { background:var(--success-light);color:var(--success); }
+.list-months.warn   { background:var(--warning-light);color:var(--warning); }
+.list-months.danger { background:#FFEBEE;color:var(--danger); }
+.list-months.none   { color:var(--gray);font-weight:400; }
 .inv-total-val {
   font-size: 22px;
   font-weight: 700;
