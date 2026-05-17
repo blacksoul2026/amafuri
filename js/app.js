@@ -113,7 +113,7 @@ var Sync = (function() {
     return _lastSyncAt || localStorage.getItem('amafuri_last_sync') || null;
   }
 
-  return { pullOnOpen, schedulePush, push: manualPush, pull: manualPull, testConnection, isEnabled, getLastSyncAt };
+  return { pullOnOpen, schedulePush, push: manualPush, pull: manualPull, testConnection, isEnabled, getLastSyncAt, getConfig };
 })();
 
 
@@ -531,6 +531,7 @@ var App = (function() {
       var handle = item.querySelector('.drag-handle');
       if (!handle) return;
       handle.addEventListener('touchstart', _onDragStart, {passive:false});
+      handle.addEventListener('mousedown',  _onDragStart);
     });
   }
 
@@ -539,25 +540,32 @@ var App = (function() {
     e.stopPropagation();
     var item = e.currentTarget.closest('[data-pid]');
     if (!item) return;
-    var touch = e.touches[0];
+    var isTouch = e.type === 'touchstart';
+    var pt = isTouch ? e.touches[0] : e;
     var rect = item.getBoundingClientRect();
     var ghost = item.cloneNode(true);
     ghost.style.cssText = 'position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;height:'+rect.height+'px;opacity:0.8;pointer-events:none;z-index:9999;box-shadow:0 8px 32px rgba(0,0,0,0.3);border-radius:12px;margin:0;';
     document.body.appendChild(ghost);
     item.style.opacity = '0.3';
-    _dragState = {item:item, ghost:ghost, offsetY:touch.clientY-rect.top, offsetX:touch.clientX-rect.left};
-    document.addEventListener('touchmove', _onDragMove, {passive:false});
-    document.addEventListener('touchend',  _onDragEnd,  {passive:false});
+    _dragState = {item:item, ghost:ghost, offsetY:pt.clientY-rect.top, offsetX:pt.clientX-rect.left};
+    if (isTouch) {
+      document.addEventListener('touchmove', _onDragMove, {passive:false});
+      document.addEventListener('touchend',  _onDragEnd,  {passive:false});
+    } else {
+      document.addEventListener('mousemove', _onDragMove);
+      document.addEventListener('mouseup',   _onDragEnd);
+    }
   }
 
   function _onDragMove(e) {
     if (!_dragState) return;
-    e.preventDefault();
-    var touch = e.touches[0];
-    _dragState.ghost.style.top  = (touch.clientY - _dragState.offsetY) + 'px';
-    _dragState.ghost.style.left = (touch.clientX - _dragState.offsetX) + 'px';
+    if (e.cancelable) e.preventDefault();
+    var isTouch = e.type === 'touchmove';
+    var pt = isTouch ? e.touches[0] : e;
+    _dragState.ghost.style.top  = (pt.clientY - _dragState.offsetY) + 'px';
+    _dragState.ghost.style.left = (pt.clientX - _dragState.offsetX) + 'px';
     _dragState.ghost.style.display = 'none';
-    var el = document.elementFromPoint(touch.clientX, touch.clientY);
+    var el = document.elementFromPoint(pt.clientX, pt.clientY);
     _dragState.ghost.style.display = '';
     var target = el && el.closest('[data-pid]');
     if (target && target !== _dragState.item && target.parentNode === _dragState.item.parentNode) {
@@ -573,6 +581,8 @@ var App = (function() {
     if (!_dragState) return;
     document.removeEventListener('touchmove', _onDragMove);
     document.removeEventListener('touchend',  _onDragEnd);
+    document.removeEventListener('mousemove', _onDragMove);
+    document.removeEventListener('mouseup',   _onDragEnd);
     _dragState.ghost.remove();
     _dragState.item.style.opacity = '';
     var parent = _dragState.item.parentNode;
@@ -648,7 +658,12 @@ var App = (function() {
     var since90 = new Date(now.getTime() - 90*864e5);
     var isManual = _sortMode === 'manual';
 
-    var html = '<div style="overflow-x:auto;"><table class="list-view-table"><tbody>';
+    var html = '<div style="overflow-x:auto;"><table class="list-view-table">';
+    html += '<thead><tr>' +
+      (isManual ? '<th style="width:32px;"></th>' : '') +
+      '<th style="text-align:left;">商品</th>' +
+      '<th>Amazon</th><th>フリマ</th><th>合計</th><th>30日売上</th><th>残月数</th>' +
+    '</tr></thead><tbody>';
 
     products.forEach(function(p) {
       var sales30 = allSales.filter(function(s){
@@ -1389,6 +1404,9 @@ var App = (function() {
     var w = parseInt((document.getElementById('sWarn')||{value:10}).value)||10;
     DB.saveSettings({ dangerAt:d, warnAt:w });
     U.toast('保存しました','success');
+    // 商品画面の色判定をすぐ反映
+    var main = document.getElementById('main');
+    if (main && _tab === 'products' && !_detailId) renderProducts(main);
   }
 
   function backupData() {
@@ -1413,8 +1431,9 @@ var App = (function() {
      ==================== */
 
   function renderSyncSection() {
-    var url   = localStorage.getItem('amafuri_worker_url') || '';
-    var token = localStorage.getItem('amafuri_api_token') || '';
+    var cfg   = Sync.getConfig();
+    var url   = cfg.url;
+    var token = cfg.token;
     var lastSync = Sync.getLastSyncAt();
     var enabled = Sync.isEnabled();
 
